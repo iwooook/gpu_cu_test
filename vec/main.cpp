@@ -90,7 +90,7 @@ int main(int argc, char** argv) {
 
     // Calculate TFLOPS
     const int num_ops_of_vec = 32;
-    double num_of_ops = static_cast<double>(1 * threads_per_block * num_ops_of_vec * num_iter * num_kernel);
+    double num_of_ops = static_cast<double>(2 * threads_per_block * num_ops_of_vec * num_iter * num_kernel);
     double flops = num_of_ops / elapsed.count();
 
     std::cout << "Single CU Performance: " << flops / 1e12 << " TFLOPS" << std::endl;

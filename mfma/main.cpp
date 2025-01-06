@@ -14,11 +14,12 @@
         } \
     } while (0)
 
-#define N_THREADS_PER_BLOCK 256
+#define N_THREADS_PER_BLOCK 512
 
 __global__ void MFMAPerformanceKernel(void *p_a, void *p_b, size_t N) {
     using float16 = __attribute__((__vector_size__(16 * sizeof(float)))) float;
 
+#if 1
     size_t idx = threadIdx.x + blockIdx.x * blockDim.x;
 
     float *fp_a = (float *)p_a;
@@ -37,6 +38,27 @@ __global__ void MFMAPerformanceKernel(void *p_a, void *p_b, size_t N) {
     for (size_t i = 0; i < 16; i++) {
         fp_a[idx + i] = c[i];
     }
+#else
+    using float4 = __attribute__((__vector_size__(4 * sizeof(float)))) float;
+    size_t idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    float *fp_a = (float *)p_a;
+    float *fp_b = (float *)p_b;
+
+    float a = fp_a[idx];
+    float b = fp_b[idx];
+    float4 c = {0};
+
+    for (size_t i = 0; i < N; i++) {    
+        // v_mfma_f32_16x16x4_f32
+        // FLOPs 2048
+        c = __builtin_amdgcn_mfma_f32_16x16x4f32(a, b, c, 0, 0, 0);
+    }
+
+    for (size_t i = 0; i < 4; i++) {
+        fp_a[idx + i] = c[i];
+    }   
+#endif 
 
 }
 
@@ -90,6 +112,30 @@ __global__ void MFMAPerformanceKernel3(void *p_a, void *p_b, size_t N) {
 
 }
 
+__global__ void MFMAPerformanceKernel4(void *p_a, void *p_b, size_t N) {
+    using int16 = __attribute__((__vector_size__(16 * sizeof(int)))) int;
+
+    size_t idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+    long *lp_a = (long *)p_a;
+    long *lp_b = (long *)p_b;
+
+    long a = lp_a[idx];
+    long b = lp_b[idx];
+    int16 c = {0};
+
+    for (size_t i = 0; i < N; i++) {    
+        // v_mfma_f32_32x32x16_fp8_bf8
+        // Ops 32768
+        c = __builtin_amdgcn_mfma_f32_32x32x16_fp8_bf8(a, b, c, 0, 0, 0);
+    }
+
+    for (size_t i = 0; i < 16; i++) {
+        lp_a[idx + i] = c[i];
+    }
+
+}
+
 int main(int argc, char** argv) {
     if (argc != 5) {
         std::cerr << "Usage: ./mfma <num_iter> <num_kernel> <num_cus> <data_type>" << std::endl;
@@ -116,9 +162,12 @@ int main(int argc, char** argv) {
     } else if (data_type == 1) {
         kernel = MFMAPerformanceKernel2;
         printf("testing FP16\n");
-    } else {
+    } else if (data_type == 2) {
         kernel = MFMAPerformanceKernel3;
         printf("testing INT8\n");
+    } else {
+        kernel = MFMAPerformanceKernel4;
+        printf("testing FP8/BF8\n");
     }
 
     // Allocate host and device memory
@@ -167,6 +216,8 @@ int main(int argc, char** argv) {
         num_ops_of_mfma = 4096;
     } else if (data_type == 1) {
         num_ops_of_mfma = 16384;
+    } else if (data_type == 2) {
+        num_ops_of_mfma = 32768;
     } else {
         num_ops_of_mfma = 32768;
     }
